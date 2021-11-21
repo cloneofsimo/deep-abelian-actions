@@ -202,7 +202,7 @@ class PairAction(nn.Module):
 
         return img1h, img2h
 
-    def commutative_loss(self, iA, iB, iC):
+    def compatibility_loss(self, iA, iB, iC):
         gA = self.encoder(iA)
         gB = self.encoder(iB)
         gC = self.encoder(iC)
@@ -212,7 +212,7 @@ class PairAction(nn.Module):
 
         return self.criterion(iCh, iC)
     
-    def abelian_commutative_loss(self, iA, iB, iC):
+    def abelian_compatibility_loss(self, iA, iB, iC):
 
         gA = self.encoder(iA)
         gB = self.encoder(iB)
