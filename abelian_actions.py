@@ -178,7 +178,8 @@ class PairAction(nn.Module):
         self.criterion = nn.MSELoss()
         self.im_size = im_size
 
-    def subtract(z1, z2, t = 0.1):
+    @staticmethod
+    def subtract(z1, z2, t = 1.0):
         return (z1 - z2) * t
 
     def forward(self, img1, img2):
@@ -190,7 +191,7 @@ class PairAction(nn.Module):
 
         return loss1 + loss2
 
-    def pair_recon(self, img1, img2, t=0.1):
+    def pair_recon(self, img1, img2, t=1.0):
         z1 = self.encoder(img1)
         z2 = self.encoder(img2)
 
@@ -219,16 +220,15 @@ class PairAction(nn.Module):
         gC = self.encoder(iC)
 
         iMid = self.action(iA, self.subtract(gC,gB)) # should represent gA + gC - gB
-        iCh = self.action(iMid, self.subtract(gB,gA)) # should represent gC. Thus, Ch
+        iCh = self.action(iMid, self.subtract(gB,gA)) # should represent gC. Thus, iCh
 
         return self.criterion(iCh, iC)
-    
 
+    def identity_loss(self, iA, iB):
+        gA = self.encoder(iA)
+        gB = self.encoder(iB)
 
-class CommutativeAction(nn.Module):
-    pass  # TODO : implement triplet-commutative action
+        iBh = self.action(iA, self.subtract(gB,gA)) # should be iB
+        iAh = self.action(iBh, self.subtract(gA,gB)) # should be iA
 
-
-class AbelianAction(nn.Module):
-    pass  # TODO : implement triplet-commutative action + abelinian action
-
+        return self.criterion(iAh, iA) + self.criterion(iBh, iB)
