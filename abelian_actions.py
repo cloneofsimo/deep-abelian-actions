@@ -120,11 +120,16 @@ class UnetActionModule(nn.Module):
         super(UnetActionModule, self).__init__()
 
         self.latent_unfolder = SubDecoder(nz, ngf, 16)
-        self.unet = UNet(3 + 16)
+        self.unet = UNet()
+        self.nz = nz
 
-    def forward(self, img, latent):
-        merged = torch.cat((img, self.latent_unfolder(latent)), 1)
-        return self.unet(merged)
+    def forward(self, img, g):
+        g = g.reshape(-1, self.nz, 1, 1)
+        merged = torch.cat((img, self.latent_unfolder(g)), 1)
+        # print(merged.shape)
+        x = self.unet(merged)
+        # print(x.shape)
+        return x
 
 
 ACTIONNETWORKMAPS = {

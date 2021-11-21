@@ -67,7 +67,7 @@ class Decoder(nn.Module):
 
 class UNet(nn.Module):
     def __init__(
-        self, out_channel=3, enc_chs=(3, 64, 128, 256), dec_chs=(256, 128, 64),
+        self, out_channel=3, enc_chs=(19, 64, 128, 256), dec_chs=(256, 128, 64),
     ):
         super().__init__()
         self.encoder = Encoder(enc_chs)
@@ -78,5 +78,6 @@ class UNet(nn.Module):
         enc_ftrs = self.encoder(x)
         out = self.decoder(enc_ftrs[::-1][0], enc_ftrs[::-1][1:])
         out = self.head(out)
+        out = F.interpolate(out, (64, 64))
 
         return out

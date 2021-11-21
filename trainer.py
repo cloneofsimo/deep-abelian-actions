@@ -19,6 +19,7 @@ def train():
     epochs = 10
     device = "cuda:1"
     tqdm_log = False
+    types = "unet"
 
     train_data = PairImageDataset(_LOCAL_DATASET_BASEPATH)
     train_loader = DataLoader(
@@ -26,7 +27,7 @@ def train():
     )
 
     # load model
-    model = PairAction(ngf=256, nz=128, im_size=64)
+    model = PairAction(ngf=256, nz=128, im_size=64, action_type=types)
     model.train()
     model.to(device)
 
@@ -52,12 +53,14 @@ def train():
             total_loss += loss.item()
             optimizer.step()
             # print loss
-            if (i + 1) % 1000 == 0:
+            if (i + 1) % 2000 == 0:
                 print(
                     f"Epoch [{epoch + 1}], Step [{i}], Loss: {total_loss / (i + 1):.4f}"
                 )
                 # save model
-                torch.save(model.state_dict(), f"./ckpts/model{epoch}_{i + 1}.pth")
+                torch.save(
+                    model.state_dict(), f"./ckpts/model{types}_{epoch}_{i + 1}.pth"
+                )
 
 
 if __name__ == "__main__":
