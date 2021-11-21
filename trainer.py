@@ -18,7 +18,7 @@ def train():
     batch_size = 64
     epochs = 10
     device = "cuda:1"
-    tqdm_log = False
+    tqdm_log = True
     types = "unet"
 
     train_data = PairImageDataset(_LOCAL_DATASET_BASEPATH)
@@ -27,7 +27,7 @@ def train():
     )
 
     # load model
-    model = PairAction(ngf=256, nz=128, im_size=64, action_type=types)
+    model = PairAction(ngf=256, nz=128, im_size=128, action_type=types)
     model.train()
     model.to(device)
 

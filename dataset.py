@@ -11,8 +11,8 @@ class PairImageDataset(Dataset):
         self.image_paths = glob(image_path + "/*.jpg")
         self.transform = transforms.Compose(
             [
-                transforms.Resize(64),
-                transforms.CenterCrop(64),
+                transforms.Resize(128),
+                transforms.CenterCrop(128),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
             ]
