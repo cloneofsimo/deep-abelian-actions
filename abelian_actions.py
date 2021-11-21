@@ -7,19 +7,20 @@ from torch.nn.modules.conv import ConvTranspose1d
 import torchvision
 import segmentation_models_pytorch as smp
 
+
 class Upconv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
         super(Upconv, self).__init__()
         self.main = nn.Sequential(
             nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride, padding),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
         )
-        
 
     def forward(self, x):
         x = self.main(x)
         return x
+
 
 class SubDecoder(nn.Module):
     def __init__(self, nz, ngf, nc, im_size):
@@ -29,29 +30,32 @@ class SubDecoder(nn.Module):
         self.upfactor = round(math.log2(im_size)) - 3
         assert self.upfactor > 0, "Image size must be greator than 8"
 
-        
-
-        self.up_size = round(2**(self.upfactor + 3))
+        self.up_size = round(2 ** (self.upfactor + 3))
         print("Decoder upsizing factor:", self.upfactor)
         print(f"img size {self.im_size}, up_size {self.up_size}")
 
         self.main = nn.Sequential(
             Upconv(nz, ngf * (2 ** self.upfactor), 4, 1, 0),
             *[
-                Upconv(ngf * (2 ** mult), ngf * (2 ** (mult - 1)), 4, 2, 1) for mult in range(self.upfactor, 0, -1)
+                Upconv(ngf * (2 ** mult), ngf * (2 ** (mult - 1)), 4, 2, 1)
+                for mult in range(self.upfactor, 0, -1)
             ],
             nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False),
         )
 
     def forward(self, g):
         upconved = self.main(g)
-        assert upconved.shape[-1] == self.up_size, f"Upsized image size must be equal to upsizing factor : {upconved.shape[-1]}, {self.up_size}"
+        assert (
+            upconved.shape[-1] == self.up_size
+        ), f"Upsized image size must be equal to upsizing factor : {upconved.shape[-1]}, {self.up_size}"
 
         if self.up_size == self.im_size:
             return upconved
         else:
-            return F.interpolate(upconved, size = self.im_size, mode='bilinear', align_corners=False)
-       
+            return F.interpolate(
+                upconved, size=self.im_size, mode="bilinear", align_corners=False
+            )
+
 
 def flow_warp(x, flow, interp_mode="bilinear", padding_mode="zeros"):
     """
@@ -87,7 +91,7 @@ def flow_warp(x, flow, interp_mode="bilinear", padding_mode="zeros"):
 
 
 class VggEncoder(nn.Module):
-    def __init__(self, im_size, nz):
+    def __init__(self, im_size: int, nz: int, affine_latent: bool):
         # vgg encoder
         super().__init__()
         self.im_size = im_size
@@ -98,7 +102,7 @@ class VggEncoder(nn.Module):
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.Linear(512 * 1 * 1, nz),
-            nn.LayerNorm(nz),
+            nn.LayerNorm(nz, elementwise_affine=affine_latent),
         )
 
     def forward(self, x):
@@ -141,7 +145,7 @@ class UnetActionModule(nn.Module):
         self.unet = smp.Unet(
             encoder_name="resnet34",
             encoder_weights="imagenet",
-            in_channels = 16 + 3,
+            in_channels=16 + 3,
             classes=3,
         )
         self.nz = nz
@@ -151,8 +155,11 @@ class UnetActionModule(nn.Module):
         g = g.reshape(-1, self.nz, 1, 1)
 
         if img.shape[-1] != self.im_size:
-            img = F.interpolate(img, size=self.im_size, mode='bilinear', align_corners=False)
-
+            img = F.interpolate(
+                img, size=self.im_size, mode="bilinear", align_corners=False
+            )
+        # print(img.shape)
+        # print(g.shape)
         merged = torch.cat((img, self.latent_unfolder(g)), 1)
         # print(merged.shape)
         x = self.unet(merged)
@@ -168,28 +175,40 @@ ACTIONNETWORKMAPS = {
 
 class PairAction(nn.Module):
     def __init__(
-        self, ngf: int, nz: int, im_size: int = 64, action_type: str = "amw",
+        self,
+        ngf: int,
+        nz: int,
+        im_size: int,
+        action_type: str,
+        loss_type: str,
+        affine_latent: bool = False,
     ):
         super().__init__()
         self.nz = nz
         self.ngf = ngf
         self.action = ACTIONNETWORKMAPS[action_type](ngf, nz, im_size)
-        self.encoder = VggEncoder(im_size, nz)
+        self.encoder = VggEncoder(im_size, nz, affine_latent=affine_latent)
         self.criterion = nn.MSELoss()
         self.im_size = im_size
+        self.loss_type = loss_type
 
     @staticmethod
-    def subtract(z1, z2, t = 1.0):
+    def subtract(z1, z2, t=1.0):
         return (z1 - z2) * t
 
     def forward(self, img1, img2):
 
-        img1h, img2h = self.pair_recon(img1, img2, t=1.0)
+        if self.loss_type == "simple":
 
-        loss1 = self.criterion(img1h, img1)
-        loss2 = self.criterion(img2h, img2)
+            img1h, img2h = self.pair_recon(img1, img2, t=1.0)
 
-        return loss1 + loss2
+            loss1 = self.criterion(img1h, img1)
+            loss2 = self.criterion(img2h, img2)
+
+            return loss1 + loss2
+
+        if self.loss_type == "inverse":
+            return self.inverse_loss(img1, img2)
 
     def pair_recon(self, img1, img2, t=1.0):
         z1 = self.encoder(img1)
@@ -208,27 +227,42 @@ class PairAction(nn.Module):
         gB = self.encoder(iB)
         gC = self.encoder(iC)
 
-        iBh = self.action(iA, self.subtract(gB,gA)) # should be iB
-        iCh = self.action(iBh, self.subtract(gC,gB)) # should be iC
+        iBh = self.action(iA, self.subtract(gB, gA))  # should be iB
+        iCh = self.action(iBh, self.subtract(gC, gB))  # should be iC
 
         return self.criterion(iCh, iC)
-    
+
     def abelian_compatibility_loss(self, iA, iB, iC):
 
         gA = self.encoder(iA)
         gB = self.encoder(iB)
         gC = self.encoder(iC)
 
-        iMid = self.action(iA, self.subtract(gC,gB)) # should represent gA + gC - gB
-        iCh = self.action(iMid, self.subtract(gB,gA)) # should represent gC. Thus, iCh
+        iMid = self.action(iA, self.subtract(gC, gB))  # should represent gA + gC - gB
+        iCh = self.action(iMid, self.subtract(gB, gA))  # should represent gC. Thus, iCh
 
         return self.criterion(iCh, iC)
 
-    def identity_loss(self, iA, iB):
+    def inverse_loss(self, iA, iB):
         gA = self.encoder(iA)
         gB = self.encoder(iB)
 
-        iBh = self.action(iA, self.subtract(gB,gA)) # should be iB
-        iAh = self.action(iBh, self.subtract(gA,gB)) # should be iA
+        iBh = self.action(iA, self.subtract(gB, gA))  # should be iB
+        iAh = self.action(iB, self.subtract(gA, gB))  # should be iA
 
-        return self.criterion(iAh, iA) + self.criterion(iBh, iB)
+        iAhh = self.action(iBh, self.subtract(gA, gB))  # should be iA
+        iBhh = self.action(iAh, self.subtract(gB, gA))  # should be iB
+
+        return (
+            self.criterion(iAhh, iA)
+            + self.criterion(iBhh, iB)
+            + self.criterion(iBh, iB)
+            + self.criterion(iAh, iA)
+        )
+
+    def forward_vector(self, g, base_image, t):
+        # g = g.reshape(-1, self.nz, 1, 1)
+        g_base = self.encoder(base_image)
+
+        diff = self.subtract(g, g_base, t)
+        return self.action(base_image, diff)

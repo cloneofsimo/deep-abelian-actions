@@ -7,12 +7,12 @@ from PIL import Image
 
 
 class PairImageDataset(Dataset):
-    def __init__(self, image_path):
+    def __init__(self, image_path: str, im_size: int):
         self.image_paths = glob(image_path + "/*.jpg")
         self.transform = transforms.Compose(
             [
-                transforms.Resize(128),
-                transforms.CenterCrop(128),
+                transforms.Resize(im_size),
+                transforms.CenterCrop(im_size),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
             ]
@@ -31,4 +31,3 @@ class PairImageDataset(Dataset):
     def __getitem__(self, idx):
         ran = random.randint(0, len(self.image_paths) - 1)
         return (self._getimg(idx), self._getimg(ran))
-

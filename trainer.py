@@ -16,22 +16,37 @@ from tqdm import tqdm
 def train():
     # load data
     batch_size = 64
-    epochs = 10
+    epochs = 50
     device = "cuda:1"
-    tqdm_log = True
-    types = "unet"
+    tqdm_log = False
+    action_type = "unet"
+    loss_type = "inverse"
+    im_size = 64
+    ckpt_freq = 3000
+    affine_latent = False
 
-    train_data = PairImageDataset(_LOCAL_DATASET_BASEPATH)
+    train_data = PairImageDataset(_LOCAL_DATASET_BASEPATH, im_size)
     train_loader = DataLoader(
         train_data, batch_size=batch_size, shuffle=True, num_workers=20
     )
 
     # load model
-    model = PairAction(ngf=256, nz=128, im_size=128, action_type=types)
+    model = PairAction(
+        ngf=256,
+        nz=512,
+        im_size=im_size,
+        action_type=action_type,
+        loss_type=loss_type,
+        affine_latent=affine_latent,
+    )
+    # model.load_state_dict(torch.load("./ckpts/modelunet_2_2000.pth"))
     model.train()
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0004, betas=(0.5, 0.999))
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, betas=(0.5, 0.999))
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, patience=2, factor=0.1, verbose=True
+    )
 
     # train
     for epoch in range(epochs):
@@ -52,15 +67,20 @@ def train():
             loss.backward()
             total_loss += loss.item()
             optimizer.step()
-            # print loss
-            if (i + 1) % 2000 == 0:
-                print(
-                    f"Epoch [{epoch + 1}], Step [{i}], Loss: {total_loss / (i + 1):.4f}"
+
+            if tqdm_log:
+                pbar.set_description(
+                    f"Epoch {epoch} | Loss: {loss.item():.4f} | Total Loss: {total_loss / (i + 1):.4f}"
                 )
+            # print loss
+            if (i + 1) % ckpt_freq == 0:
+                print(f"Epoch [{epoch}], Step [{i}], Loss: {total_loss / (i + 1):.4f}")
                 # save model
                 torch.save(
-                    model.state_dict(), f"./ckpts/model{types}_{epoch}_{i + 1}.pth"
+                    model.state_dict(),
+                    f"./ckpts/model{action_type}_{loss_type}_{epoch}_{i + 1}.pth",
                 )
+                scheduler.step(total_loss / (i + 1))
 
 
 if __name__ == "__main__":
