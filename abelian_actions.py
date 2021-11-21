@@ -178,30 +178,51 @@ class PairAction(nn.Module):
         self.criterion = nn.MSELoss()
         self.im_size = im_size
 
+    def subtract(z1, z2, t = 0.1):
+        return (z1 - z2) * t
+
     def forward(self, img1, img2):
 
-        img1h, img2h = self.recon(img1, img2, t=1.0)
-
-        if img1h.shape[-1] != self.im_size:
-            img1h = F.interpolate(img1h, size=self.im_size, mode='bilinear', align_corners=False)
-            img2h = F.interpolate(img2h, size=self.im_size, mode='bilinear', align_corners=False)
-
+        img1h, img2h = self.pair_recon(img1, img2, t=1.0)
 
         loss1 = self.criterion(img1h, img1)
         loss2 = self.criterion(img2h, img2)
 
         return loss1 + loss2
 
-    def recon(self, img1, img2, t=0.1):
+    def pair_recon(self, img1, img2, t=0.1):
         z1 = self.encoder(img1)
         z2 = self.encoder(img2)
 
-        diff = (z1 - z2) * t
+        diff = self.subtract(z1, z2, t)
+        diffi = self.subtract(z2, z1, t)
 
         img1h = self.action(img2, diff)  # should be img1
-        img2h = self.action(img1, -diff)  # should be img2
+        img2h = self.action(img1, diffi)  # should be img2
 
         return img1h, img2h
+
+    def commutative_loss(self, iA, iB, iC):
+        gA = self.encoder(iA)
+        gB = self.encoder(iB)
+        gC = self.encoder(iC)
+
+        iBh = self.action(iA, self.subtract(gB,gA)) # should be iB
+        iCh = self.action(iBh, self.subtract(gC,gB)) # should be iC
+
+        return self.criterion(iCh, iC)
+    
+    def abelian_commutative_loss(self, iA, iB, iC):
+
+        gA = self.encoder(iA)
+        gB = self.encoder(iB)
+        gC = self.encoder(iC)
+
+        iMid = self.action(iA, self.subtract(gC,gB)) # should represent gA + gC - gB
+        iCh = self.action(iMid, self.subtract(gB,gA)) # should represent gC. Thus, Ch
+
+        return self.criterion(iCh, iC)
+    
 
 
 class CommutativeAction(nn.Module):
