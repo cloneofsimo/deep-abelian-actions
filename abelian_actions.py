@@ -205,19 +205,40 @@ class PairAction(nn.Module):
         loss_type: str,
         affine_latent: bool = False,
         ident_preserving: bool = False,
+        space: str = "R^n",
     ):
         super().__init__()
         self.nz = nz
         self.ngf = ngf
-        self.action = ACTIONNETWORKMAPS[action_type](ngf, nz, im_size, ident_preserving)
+        self.space = space
+        if self.space == "S1^n":
+            self.action = ACTIONNETWORKMAPS[action_type](
+                ngf, nz * 2, im_size, ident_preserving
+            )
+        else:
+            self.action = ACTIONNETWORKMAPS[action_type](
+                ngf, nz, im_size, ident_preserving
+            )
+
         self.encoder = VggEncoder(im_size, nz, affine_latent=affine_latent)
         self.criterion = nn.MSELoss()
         self.im_size = im_size
         self.loss_type = loss_type
 
-    @staticmethod
-    def subtract(z1, z2, t=1.0):
-        return (z1 - z2) * t
+    def _unit_circle_exponentiate(self, z):
+        zc = torch.cos(z)
+        zs = torch.sin(z)
+
+    def subtract(self, z1, z2, t=1.0):
+        # calculate z1 * z2^-1
+
+        # z must be in size B, nz
+
+        if self.space == "R^n":
+            return (z1 - z2) * t
+        elif self.space == "S1^n":
+            # in case of tori, we actually assume z1, z2 to be lie algebra instead.
+            return torch.cat([torch.sin((z1 - z2) * t), torch.cos((z1 - z2) * t)], 1)
 
     def forward(self, img1, img2):
 
