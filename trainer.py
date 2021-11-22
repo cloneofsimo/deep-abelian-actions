@@ -18,12 +18,15 @@ def train():
     batch_size = 64
     epochs = 50
     device = "cuda:1"
-    tqdm_log = False
-    action_type = "unet"
-    loss_type = "inverse"
+
+    action_type = "amw"
+    loss_type = "simple"
     im_size = 64
-    ckpt_freq = 3000
+
+    tqdm_log = True
+    ckpt_freq = 1500
     affine_latent = False
+    ident_preserving = True
 
     train_data = PairImageDataset(_LOCAL_DATASET_BASEPATH, im_size)
     train_loader = DataLoader(
@@ -38,6 +41,7 @@ def train():
         action_type=action_type,
         loss_type=loss_type,
         affine_latent=affine_latent,
+        ident_preserving=ident_preserving,
     )
     # model.load_state_dict(torch.load("./ckpts/modelunet_2_2000.pth"))
     model.train()
@@ -78,7 +82,7 @@ def train():
                 # save model
                 torch.save(
                     model.state_dict(),
-                    f"./ckpts/model{action_type}_{loss_type}_{epoch}_{i + 1}.pth",
+                    f"./ckpts/model{action_type}_{loss_type}_{ident_preserving}_{epoch}_{i + 1}.pth",
                 )
                 scheduler.step(total_loss / (i + 1))
 

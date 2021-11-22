@@ -9,8 +9,16 @@ import segmentation_models_pytorch as smp
 
 
 class Upconv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=3,
+        stride=1,
+        padding=1,
+    ):
         super(Upconv, self).__init__()
+
         self.main = nn.Sequential(
             nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride, padding),
             nn.BatchNorm2d(out_channels),
@@ -23,10 +31,12 @@ class Upconv(nn.Module):
 
 
 class SubDecoder(nn.Module):
-    def __init__(self, nz, ngf, nc, im_size):
+    def __init__(self, nz, ngf, nc, im_size, ident_preserving):
         super(SubDecoder, self).__init__()
 
+        self.nz = nz
         self.im_size = im_size
+        self.ident_preserving = ident_preserving
         self.upfactor = round(math.log2(im_size)) - 3
         assert self.upfactor > 0, "Image size must be greator than 8"
 
@@ -37,14 +47,25 @@ class SubDecoder(nn.Module):
         self.main = nn.Sequential(
             Upconv(nz, ngf * (2 ** self.upfactor), 4, 1, 0),
             *[
-                Upconv(ngf * (2 ** mult), ngf * (2 ** (mult - 1)), 4, 2, 1)
+                Upconv(
+                    ngf * (2 ** mult),
+                    ngf * (2 ** (mult - 1)),
+                    4,
+                    2,
+                    1,
+                )
                 for mult in range(self.upfactor, 0, -1)
             ],
             nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False),
         )
 
-    def forward(self, g):
+    def forward(self, g: torch.Tensor):
         upconved = self.main(g)
+
+        if self.ident_preserving:
+            g1 = g.reshape(-1, self.nz).norm(p=1, dim=1).reshape(-1, 1, 1, 1) / self.nz
+            upconved = upconved * g1
+
         assert (
             upconved.shape[-1] == self.up_size
         ), f"Upsized image size must be equal to upsizing factor : {upconved.shape[-1]}, {self.up_size}"
@@ -85,7 +106,9 @@ def flow_warp(x, flow, interp_mode="bilinear", padding_mode="zeros"):
     vgrid_scaled.requires_grad = False
     vgrid_scaled = vgrid_scaled.type_as(x)
     vgrid = vgrid_scaled + flow
-    output = F.grid_sample(x, vgrid, mode=interp_mode, padding_mode=padding_mode)
+    output = F.grid_sample(
+        x, vgrid, mode=interp_mode, padding_mode=padding_mode, align_corners=True
+    )
 
     return output
 
@@ -117,14 +140,12 @@ class AMWActionModule(nn.Module):
     Add, multiply, and Warp Action.
     """
 
-    def __init__(self, ngf: int, nz: int):
+    def __init__(self, ngf: int, nz: int, im_size: int, ident_preserving: bool):
         super().__init__()
         self.nz = nz
-        self.flow_generator = SubDecoder(nz, ngf, 2)
-        self.soft_bias = SubDecoder(nz, ngf, 3)
-        self.soft_scale = SubDecoder(nz, ngf, 3)
-
-        self.head = nn.Tanh()
+        self.flow_generator = SubDecoder(nz, ngf, 2, im_size, ident_preserving)
+        self.soft_bias = SubDecoder(nz, ngf, 3, im_size, ident_preserving)
+        self.soft_scale = SubDecoder(nz, ngf, 3, im_size, ident_preserving)
 
     def forward(self, img, g):
         g = g.reshape(-1, self.nz, 1, 1)
@@ -132,16 +153,18 @@ class AMWActionModule(nn.Module):
         flow = self.flow_generator(g).permute(0, 2, 3, 1)
         bias = self.soft_bias(g)
         scale = self.soft_scale(g)
-        scaled_img = self.head(img * scale + bias)
+        scaled_img = img * (1 + scale) + bias
 
         return flow_warp(scaled_img, flow)
 
 
 class UnetActionModule(nn.Module):
-    def __init__(self, ngf: int, nz: int, im_size: int = 128):
+    def __init__(
+        self, ngf: int, nz: int, im_size: int = 128, ident_preserving: bool = False
+    ):
         super(UnetActionModule, self).__init__()
 
-        self.latent_unfolder = SubDecoder(nz, ngf, 16, im_size)
+        self.latent_unfolder = SubDecoder(nz, ngf, 16, im_size, ident_preserving)
         self.unet = smp.Unet(
             encoder_name="resnet34",
             encoder_weights="imagenet",
@@ -158,12 +181,11 @@ class UnetActionModule(nn.Module):
             img = F.interpolate(
                 img, size=self.im_size, mode="bilinear", align_corners=False
             )
-        # print(img.shape)
-        # print(g.shape)
+
         merged = torch.cat((img, self.latent_unfolder(g)), 1)
-        # print(merged.shape)
+
         x = self.unet(merged)
-        # print(x.shape)
+
         return x
 
 
@@ -182,11 +204,12 @@ class PairAction(nn.Module):
         action_type: str,
         loss_type: str,
         affine_latent: bool = False,
+        ident_preserving: bool = False,
     ):
         super().__init__()
         self.nz = nz
         self.ngf = ngf
-        self.action = ACTIONNETWORKMAPS[action_type](ngf, nz, im_size)
+        self.action = ACTIONNETWORKMAPS[action_type](ngf, nz, im_size, ident_preserving)
         self.encoder = VggEncoder(im_size, nz, affine_latent=affine_latent)
         self.criterion = nn.MSELoss()
         self.im_size = im_size
