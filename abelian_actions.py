@@ -158,6 +158,24 @@ class AMWActionModule(nn.Module):
         return flow_warp(scaled_img, flow)
 
 
+class WarperActionModule(nn.Module):
+    """
+    Warp Action.
+    """
+
+    def __init__(self, ngf: int, nz: int, im_size: int, ident_preserving: bool):
+        super().__init__()
+        self.nz = nz
+        self.flow_generator = SubDecoder(nz, ngf, 2, im_size, ident_preserving)
+
+    def forward(self, img, g):
+        g = g.reshape(-1, self.nz, 1, 1)
+
+        flow = self.flow_generator(g).permute(0, 2, 3, 1)
+
+        return flow_warp(img, flow)
+
+
 class UnetActionModule(nn.Module):
     def __init__(
         self, ngf: int, nz: int, im_size: int = 128, ident_preserving: bool = False
@@ -192,6 +210,7 @@ class UnetActionModule(nn.Module):
 ACTIONNETWORKMAPS = {
     "amw": AMWActionModule,
     "unet": UnetActionModule,
+    "wrp": WarperActionModule,
 }
 
 
@@ -240,7 +259,7 @@ class PairAction(nn.Module):
             # in case of tori, we actually assume z1, z2 to be lie algebra instead.
             return torch.cat([torch.sin((z1 - z2) * t), torch.cos((z1 - z2) * t)], 1)
 
-    def forward(self, img1, img2):
+    def forward(self, img1, img2, img3=None):
 
         if self.loss_type == "simple":
 
@@ -253,6 +272,12 @@ class PairAction(nn.Module):
 
         if self.loss_type == "inverse":
             return self.inverse_loss(img1, img2)
+
+        if self.loss_type == "compat":
+            return self.compatibility_loss(img1, img2, img3)
+
+        if self.loss_type == "abel_compat":
+            return self.abelian_compatibility_loss(img1, img2, img3)
 
     def pair_recon(self, img1, img2, t=1.0):
         z1 = self.encoder(img1)

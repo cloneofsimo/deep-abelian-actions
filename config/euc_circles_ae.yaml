@@ -1,0 +1,20 @@
+batch_size: 64
+num_workers: 20
+epochs: 50
+device: "cuda:1"
+lr: 0.0005
+tqdm_log: True
+ckpt_freq: 1500
+nz: 256
+im_size: 64
+ngf: 256
+# model
+action_type: "ae"
+loss_type: "mse"
+affine_latent: False
+ident_preserving: False
+
+use_wandb: True
+debug: False
+
+dataset_path: "./data/euc_2_circle_dataset"

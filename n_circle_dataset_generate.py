@@ -60,6 +60,6 @@ if __name__ == "__main__":
 
     img_size = 128
     radius = 10
-    for idx in range(1, 6):
+    for idx in range(1, 4):
         save_path = f"./data/{idx}_circle_dataset/"
-        create_n_circle_dataset(200, save_path, img_size, radius, idx)
+        create_n_circle_dataset(10000, save_path, img_size, radius, idx)
